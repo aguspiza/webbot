@@ -4,6 +4,7 @@ import string
 import errno
 import sys
 from collections import OrderedDict
+from collections.abc import Iterable
 
 from selenium import webdriver
 from selenium.common import exceptions
@@ -24,9 +25,8 @@ class Browser:
         The constructor takes showWindow flag as argument which Defaults to False. If it is set to true , all browser happen without showing up any GUI window .
 
         :Args:
-            - showWindow : If false , will run a headless browser without showing GUI window.
+            - showWindow : If False , will run a headless browser without showing GUI window.
             - proxy : Url of any optional proxy server.
-            - driverPath: can specify the path of an alternative chromedriver
 
 
 
@@ -40,22 +40,22 @@ class Browser:
 
     def __init__(self, showWindow=True, proxy=None , downloadPath:str=None, driverPath:str=None, arguments=["--disable-dev-shm-usage","--no-sandbox"]):
         options = webdriver.ChromeOptions()
+        options.binary_location=r'/usr/bin/google-chrome'
 
         for argument in arguments:
             options.add_argument(argument)
-
+        
         if downloadPath is not None and isinstance(downloadPath,str):
             absolutePath = os.path.abspath(downloadPath)
             if(not os.path.isdir(absolutePath)):
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), absolutePath)
-                
             options.add_experimental_option('prefs', {'download.default_directory' : absolutePath})
-            
+
         if driverPath is not None and isinstance(driverPath,str):
             driverPath = os.path.abspath(driverPath)
             if(not os.path.isdir(driverPath)):
                 raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), driverPath)
-
+            
         if proxy is not None and isinstance(proxy, str):
             # Check if '--proxy-server' has not yet been set
             if not any(arg.starts_with("--proxy-server") for arg in arguments):
@@ -74,7 +74,6 @@ class Browser:
             elif sys.platform == 'darwin':
                 driverfilename = 'chrome_mac'
             driverPath = os.path.join(os.path.split(__file__)[0], 'drivers{0}{1}'.format(os.path.sep, driverfilename))
-
             os.chmod(driverPath, 0o755)
 
         self.driver = webdriver.Chrome(executable_path=driverPath, options=options)
@@ -87,7 +86,7 @@ class Browser:
           'get_screenshot_as_base64', 'get_screenshot_as_file', 'get_screenshot_as_png', 'get_window_position',
           'get_window_rect', 'get_window_size', 'maximize_window', 'minimize_window', 'implicitly_wait', 'quit',
           'refresh', 'save_screenshot', 'set_network_conditions', 'set_page_load_timeout', 'set_script_timeout',
-          'set_window_position', 'set_window_rect', 'start_client', 'start_session', 'stop_client', 'switch_to_alert']]
+          'set_window_position', 'set_window_rect', 'start_client', 'start_session', 'stop_client']]
 
     def close_current_tab(self):
         """Closes the current tab which the driver is controlling"""
@@ -186,6 +185,12 @@ class Browser:
         def add_to_init_text_matches_score(text_matches_elements, score):
             """Extends a dictionary and maps it with the text_matched_element with the score"""
 
+            if not isinstance(text_matches_elements, Iterable):
+                element = text_matches_elements
+                self.element_to_score[element] = score
+                self.element_to_score_id_set.add(element.id)
+                return
+
             for element in text_matches_elements:
                 try:
                     if (not element.is_displayed()) or (
@@ -211,7 +216,11 @@ class Browser:
                     self.element_to_score_id_set.add(element.id)
 
         def element_fetch_helper(xpath, score):
-            add_to_init_text_matches_score(self.driver.find_elements_by_xpath(xpath), score)
+            try:
+                add_to_init_text_matches_score(self.driver.find_element(by="xpath", value=xpath), score)
+            except exceptions.NoSuchElementException as E:
+                pass
+                #print(E)
 
         def find_input_element_for_label(elementlist, score):
             """This method finds the input tag elements by taking in the label elements and assigns the score
@@ -247,14 +256,14 @@ class Browser:
                         test_attr, text.upper(), text.lower(), text.lower())), score=33)
 
                 find_input_element_for_label(
-                    self.driver.find_elements_by_xpath("//body//label[text()='{}']".format(text)), score=45)
+                    self.driver.find_elements(by="xpath", value="//body//label[text()='{}']".format(text)), score=45)
 
                 find_input_element_for_label(
-                    self.driver.find_elements_by_xpath("//body//label[contains( text() , '{}')]".format(text)),
+                    self.driver.find_elements(by="xpath", value="//body//label[contains( text() , '{}')]".format(text)),
                     score=37)
 
-                find_input_element_for_label(self.driver.find_elements_by_xpath(
-                    "//body//label[contains(translate( text() , '{}' , '{}' ) , '{}')]".format(text.upper(),
+                find_input_element_for_label(self.driver.find_elements(by="xpath", 
+                    value="//body//label[contains(translate( text() , '{}' , '{}' ) , '{}')]".format(text.upper(),
                                                                                                text.lower(),
                                                                                                text.lower())),
                     score=33)
@@ -266,7 +275,7 @@ class Browser:
                 element_fetch_helper(("//body//{}[text()='{}']".format(tagvar, text)), score=45)
                 element_fetch_helper(("//body//{}//*[text()='{}']".format(tagvar, text)), score=45)
 
-                add_to_init_text_matches_score(self.driver.find_elements_by_link_text("{}".format(text)), score=43)
+                add_to_init_text_matches_score(self.driver.find_elements(by="link text", value="{}".format(text)), score=43)
 
                 element_fetch_helper(("//body//{}[contains(text() , '{}')]".format(tagvar, text)), score=37)
                 element_fetch_helper(("//body//{}//*[contains(text() , '{}')]".format(tagvar, text)), score=37)
